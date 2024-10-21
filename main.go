@@ -30,8 +30,8 @@ func Calc(expression string) (float64, error) {
 			temp = ""
 			res = append(res, elem)
 		}
-		res = append(res, temp)
 	}
+	res = append(res, temp)
 	fmt.Println(res)
 	return 0, nil
 }
