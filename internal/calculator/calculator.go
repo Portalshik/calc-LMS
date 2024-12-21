@@ -1,4 +1,4 @@
-package main
+package calculator
 
 import (
 	"fmt"
@@ -7,10 +7,6 @@ import (
 	"strconv"
 	"strings"
 )
-
-func main() {
-	fmt.Println(Calc("2*(3+50)*300"))
-}
 
 func Calc(expression string) (float64, error) {
 	r, err := regexp.Compile(`\([^()]*\)|\(([^()]*\([^()]*\)[^()]*)+\)`)
