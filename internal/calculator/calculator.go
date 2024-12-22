@@ -1,97 +1,164 @@
 package calculator
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
-	"slices"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 func Calc(expression string) (float64, error) {
-	r, err := regexp.Compile(`\([^()]*\)|\(([^()]*\([^()]*\)[^()]*)+\)`)
+	expression = strings.ReplaceAll(expression, " ", "")
+	if expression == "" {
+		return 0.0, errors.New("empty expression")
+	}
+	if containsLetters(expression) {
+		return 0.0, errors.New("invalid expression")
+	}
+
+	for strings.Contains(expression, "(") {
+		r, err := regexp.Compile(`\([^()]*\)`)
+		if err != nil {
+			return 0.0, err
+		}
+
+		matches := r.FindAllString(expression, -1)
+		if len(matches) == 0 {
+			return 0.0, errors.New("mismatched parentheses")
+		}
+
+		for _, match := range matches {
+			inner := match[1 : len(match)-1]
+			res, err := Calc(inner)
+			if err != nil {
+				return 0.0, err
+			}
+			expression = strings.Replace(expression, match, fmt.Sprintf("%f", res), 1)
+		}
+	}
+
+	return evaluate(expression)
+}
+
+func evaluate(expression string) (float64, error) {
+	r := regexp.MustCompile(`[-+*/()]|\d*\.?\d+`)
+	tokens := r.FindAllString(expression, -1)
+
+	if len(tokens) == 0 {
+		return 0.0, errors.New("invalid expression")
+	}
+
+	rpn, err := toRPN(tokens)
 	if err != nil {
 		return 0.0, err
 	}
 
-	matches := r.FindAllString(expression, -1)
-	expression = r.ReplaceAllLiteralString(expression, "%f")
-	matchesResults := []any{}
-	for _, exp := range matches {
-		resT, _ := Calc(exp[1 : len([]rune(exp))-1])
-		matchesResults = append(matchesResults, resT)
-	}
-	expression = fmt.Sprintf(expression, matchesResults...)
+	return evaluateRPN(rpn)
+}
 
-	expList := strings.Split(expression, "")
-	res := []string{}
-	temp := ""
-	for i, elem := range expList {
-		if isNumber(elem) {
-			temp += elem
-		} else if isDot(elem) {
-			temp += elem
-		} else if isAct(elem) {
-			if i == len(expList)-1 || isAct(expList[i-1]) {
-				return 0.0, fmt.Errorf("invalid expression")
+func toRPN(tokens []string) ([]string, error) {
+	precedence := map[string]int{ "+": 1, "-": 1, "*": 2, "/": 2 }
+	var output []string
+	var operators []string
+	unary := true
+
+	for _, token := range tokens {
+		switch {
+		case isNumber(token):
+			output = append(output, token)
+			unary = false
+		case token == "(":
+			operators = append(operators, token)
+			unary = true
+		case token == ")":
+			for len(operators) > 0 && operators[len(operators)-1] != "(" {
+				output = append(output, operators[len(operators)-1])
+				operators = operators[:len(operators)-1]
 			}
-			res = append(res, temp)
-			temp = ""
-			res = append(res, elem)
+			if len(operators) == 0 {
+				return nil, errors.New("mismatched parentheses")
+			}
+			operators = operators[:len(operators)-1]
+			unary = false
+		case precedence[token] > 0:
+			if unary {
+				output = append(output, "0")
+			}
+			for len(operators) > 0 && precedence[operators[len(operators)-1]] >= precedence[token] {
+				output = append(output, operators[len(operators)-1])
+				operators = operators[:len(operators)-1]
+			}
+			operators = append(operators, token)
+			unary = true
+		default:
+			return nil, fmt.Errorf("invalid token: %s", token)
 		}
 	}
-	res = append(res, temp)
-	return _calculate(res)
+
+	for len(operators) > 0 {
+		if operators[len(operators)-1] == "(" {
+			return nil, errors.New("mismatched parentheses")
+		}
+		output = append(output, operators[len(operators)-1])
+		operators = operators[:len(operators)-1]
+	}
+
+	return output, nil
 }
 
-func isNumber(symbol string) bool {
-	runes := []rune(symbol)[0]
-	return runes <= 57 && runes >= 48
-}
+func evaluateRPN(tokens []string) (float64, error) {
+	var stack []float64
 
-func isDot(symbol string) bool {
-	runes := []rune(symbol)[0]
-	return runes == 46
-}
+	for _, token := range tokens {
+		if isNumber(token) {
+			num, _ := strconv.ParseFloat(token, 64)
+			stack = append(stack, num)
+		} else {
+			if len(stack) < 2 {
+				return 0.0, errors.New("invalid expression")
+			}
+			b, a := stack[len(stack)-1], stack[len(stack)-2]
+			stack = stack[:len(stack)-2]
 
-func isAct(symbol string) bool {
-	runes := []rune(symbol)[0]
-	return slices.Contains([]rune("+-*/"), runes)
-}
-
-func _calculate(exp []string) (float64, error) {
-	for _, val := range "*/+-" {
-		for i := 0; i < len(exp); i++ {
-			if exp[i] == string(val) {
-				if i-1 < 0 || i+1 >= len(exp) {
-					return 0.0, fmt.Errorf("invalid expression")
+			var result float64
+			switch token {
+			case "+":
+				result = a + b
+			case "-":
+				result = a - b
+			case "*":
+				result = a * b
+			case "/":
+				if b == 0 {
+					panic("division by zero")
 				}
-				a, _ := strconv.ParseFloat(exp[i-1], 64)
-				b, _ := strconv.ParseFloat(exp[i+1], 64)
-				res := _act(a, b, string(val))
-				var tempExp []string
-				tempExp = append(tempExp, exp[:i-1]...)
-				tempExp = append(tempExp, fmt.Sprintf("%f", res))
-				tempExp = append(tempExp, exp[i+2:]...)
-				exp = tempExp
-				i--
+				result = a / b
+			default:
+				panic(fmt.Sprintf("invalid operator: %s", token))
 			}
+			stack = append(stack, result)
 		}
 	}
 
-	return strconv.ParseFloat(exp[0], 64)
+	if len(stack) != 1 {
+		return 0.0, errors.New("invalid expression")
+	}
+
+	return stack[0], nil
 }
 
-func _act(a, b float64, act string) float64 {
-	switch act {
-	case "/":
-		return a / b
-	case "*":
-		return a * b
-	case "+":
-		return a + b
-	case "-":
-		return a - b
+func isNumber(token string) bool {
+	_, err := strconv.ParseFloat(token, 64)
+	return err == nil
+}
+
+func containsLetters(s string) bool {
+	for _, r := range s {
+		if unicode.IsLetter(r) {
+			return true
+		}
 	}
-	return 0.0
+	return false
 }

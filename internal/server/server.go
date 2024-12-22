@@ -9,8 +9,8 @@ import (
 
 func StartServer() {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/api/v1/calculate/", v1.Calculate)
-	if err := http.ListenAndServe(":8080", mux); err != nil {
+	mux.HandleFunc("/api/v1/calculate", v1.Calculate)
+	if err := http.ListenAndServe("", mux); err != nil {
 		log.Fatal(err)
 	}
 }
